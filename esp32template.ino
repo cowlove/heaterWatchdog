@@ -1,35 +1,66 @@
 #include "jimlib.h"
 //#include <heltec.h>	
+#include <SoftwareSerial.h>
 
 JimWiFi jw;
-EggTimer sec(100);
+EggTimer sec(100), sec5(5000);
 
 struct {
 	int led = 2;
-	int tx = 16;
-	int rx = 17;
+	int rxHeater = 17;
+	int txHeater = 16;
+	int rxDisplay = 22;
 	int dummy1 = 21;
 	int dummy2 = 22;
 } pins;
+
+class SerialChunker {
+	Stream &ser;
+	uint8_t buf[512];
+	int l = 0, timeout = 0, startTime = 0;
+	uint32_t lastRead = 0;
+public:
+	int total = 0;
+	SerialChunker(Stream &s, int ms = 34) : ser(s), timeout(ms) { }
+
+	bool check(std::function<void(const char *, int, int)> f) { 
+		uint32_t ms = millis();
+		if (ser.available() && l < sizeof(buf)) {
+			int n = ser.readBytes(buf + l, sizeof(buf) - l);
+			if (n > 0 && l == 0) { 
+				startTime = ms;
+			}
+			l += n;
+			total += n;
+			lastRead = ms;
+		}
+		if ((ms - lastRead > timeout && l > 0) || l == sizeof(buf)) {
+			f((const char *)buf, l, startTime);
+			l = 0;
+		} 
+	}
+};
+
 
 void setup() {
 	esp_task_wdt_init(20, true);
 	esp_task_wdt_add(NULL);
 	//Heltec.begin(true, true, true, true, 915E6);
 	pinMode(pins.led, OUTPUT);
-	pinMode(pins.rx, INPUT);
-	pinMode(pins.tx, INPUT);
 	digitalWrite(pins.led, 1);
 	Serial.begin(921600, SERIAL_8N1);
 	jw.onConnect([](void) {});
 	jw.onOTA([](void) {});
-	Serial2.begin(4800, SERIAL_8N1, pins.rx, pins.dummy1, true);
+	Serial2.begin(4800, SERIAL_8N1, pins.rxHeater, pins.txHeater, false);
 	Serial2.setTimeout(1);
-	//Serial1.begin(4800, SERIAL_8N1, pins.tx, pins.dummy2, true);
-	//Serial1.setTimeout(1);
+	Serial1.begin(4800, SERIAL_8N1, pins.rxDisplay, -1, false);
+	Serial1.setTimeout(1);
+	Serial.println("Restart");
 }
 
-int old_rx, old_tx, rx_transitions, tx_transitions, rx_bytes;
+SerialChunker sc1(Serial1);
+SerialChunker sc2(Serial2);
+
 
 
 void hexdump(const char *in, int len, char *out) { 
@@ -40,54 +71,74 @@ void hexdump(const char *in, int len, char *out) {
 }
 
 
-class SerialChunker {
-	Stream &ser;
-	uint8_t buf[256];
-	int l = 0, timeout = 0, startTime = 0;
-	uint32_t lastRead = 0;
-public:
-	int total = 0;
-	SerialChunker(Stream &s, int ms = 50) : ser(s), timeout(ms) { }
-
-	bool check(std::function<void(const char *, int, int)> f) { 
-		uint32_t ms = millis();
-		if (ser.available()) {
-			int n = ser.readBytes(buf + l, sizeof(buf) - l);
-			if (n > 0 && l == 0) { 
-				startTime = ms;
-			}
-			l += n;
-			total += n;
-			lastRead = ms;
-		}
-		if (ms - lastRead > timeout && l > 0) {
-			f((const char *)buf, l, startTime);
-			l = 0;
-		} 
+void sendHex(Stream &s, const char *out) { 
+	int l = strlen(out);
+	for (const char *p = out; p < out + l; p += 2) { 
+		char b[3];
+		b[0] = p[0];
+		b[1] = p[1];
+		b[2] = 0;
+		int c;
+		sscanf(b, "%x", &c);
+		s.write(c);
 	}
-};
+	//s.flush();
+	Serial.printf(">> %04d: %s\n", millis() % 10000, out);
+}
 
 uint32_t lastRec; 
 
-SerialChunker sc2(Serial2);
-//SerialChunker sc3(Serial1);
+
+typedef struct { 
+	const char *pat;
+	int count;
+} CharIntPair; 
+
+CharIntPair patterns[] = {
+	{"fb1b00aaffffff0000525e", 10}, // off and happy
+	{"fb1b0301ffffff01009b67", 3},  // button push to turn on
+	{"fb1b00aaffffff0100616f", 20}, // on happy 
+	{"fb1b0300ffffff0000edf6", 2},  // button push to turn off
+	{"fb1b02aaffffff000032bd", 7},  // turning off
+	{"fb1b00aaffffff0000525e", 10}, // off and happy
+	{"fb1b0301ffffff01009b67", 3},  // button push to turn on
+	{"fb1b00aaffffff0100616f", 20}, // on happy 
+};
+
+struct ResetPatternSequencer {
+	const char *getNext() { 
+		const char *r = patterns[idx].pat;
+		if (++count >= patterns[idx].count) { 
+			idx = min(idx + 1, (int)(sizeof(patterns) / sizeof(patterns[0]) - 1));
+			count = 0;
+		}
+		return r;
+	}
+	void startPattern() { idx = count = 0; }
+	int idx, count;
+} resetPat;
+
+std::string lastS2;
+int state = 0, errCount = 0;
 
 void loop() {
 	esp_task_wdt_reset();
 	jw.run();
 	if (sec.tick()) {
 		digitalWrite(pins.led, !digitalRead(pins.led));
-		std::string s = strfmt("S2: %d\tS3: %d", sc2.total, 0);//sc3.total);
-		Serial.println(s.c_str());
-		jw.udpDebug(s.c_str());
+		//std::string s = strfmt("S1: %d\tS2: %d", sc1.total, sc2.total);
+		//Serial.println(s.c_str());
+		//jw.udpDebug(s.c_str());
 	}
-	int rx = digitalRead(pins.rx);
-	if (rx != old_rx) rx_transitions++;
-	old_rx = rx;
 
-	int tx = digitalRead(pins.tx);
-	if (tx != old_tx) tx_transitions++;
-	old_tx = tx;
+	sc1.check([](const char *b, int l, int t) {
+		char hexbuf[2048];
+		hexdump(b, l, hexbuf);
+		std::string s = strfmt("\t\t\t\t\tS1 %04d: %s", t % 10000, hexbuf);
+		//Serial.print(lastS2.c_str());
+		Serial.println(s.c_str());
+		//jw.udpDebug(s.c_str());
+	});
 
 
 	sc2.check([](const char *b, int l, int t) {
@@ -95,18 +146,27 @@ void loop() {
 		hexdump(b, l, hexbuf);
 		std::string s = strfmt("S2 %04d: %s", t % 10000, hexbuf);
 		Serial.println(s.c_str());
-		jw.udpDebug(s.c_str());
-	});
+		//jw.udpDebug(s.c_str());
+	
+		if (strstr(hexbuf, "fa1b100c15") == hexbuf) {
+			if (errCount++ > 20) {
+				std::string s = strfmt("ERROR PACKET %s", hexbuf);
+				Serial.println(s.c_str());
+				jw.udpDebug(s.c_str());
+				resetPat.startPattern();
+				errCount = 0;
+			}
+		}
+		sendHex(Serial2, resetPat.getNext());
 
-/*
-	sc3.check([](const char *b, int l, int t) {
-		char hexbuf[2048];
-		hexdump(b, l, hexbuf);
-		std::string s = strfmt("S3 %04d: %s", t % 10000, hexbuf);
+		static int pktCount = 0;
+		s = strfmt("EC %d PKT %d PI %d\n", errCount, pktCount++, resetPat.idx);
 		Serial.println(s.c_str());
 		jw.udpDebug(s.c_str());
 	});
-*/
+
+
+
 #if 0
 	if (Serial2.available()) {
 		int ms = millis();
