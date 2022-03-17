@@ -3,13 +3,13 @@
 
 JimWiFi jw;
 EggTimer sec(100);
-//HardwareSerial Serial3(2);
 
 struct {
 	int led = 2;
 	int tx = 16;
 	int rx = 17;
-	int dummy = 21;
+	int dummy1 = 21;
+	int dummy2 = 22;
 } pins;
 
 void setup() {
@@ -23,10 +23,10 @@ void setup() {
 	Serial.begin(921600, SERIAL_8N1);
 	jw.onConnect([](void) {});
 	jw.onOTA([](void) {});
-	Serial2.begin(4800, SERIAL_8N1, pins.rx, pins.dummy, true);
-//	Serial3.begin(4800, SERIAL_8N1, pins.tx, pins.dummy, true);
+	Serial2.begin(4800, SERIAL_8N1, pins.rx, pins.dummy1, true);
 	Serial2.setTimeout(1);
-//	Serial3.setTimeout(1);
+	//Serial1.begin(4800, SERIAL_8N1, pins.tx, pins.dummy2, true);
+	//Serial1.setTimeout(1);
 }
 
 int old_rx, old_tx, rx_transitions, tx_transitions, rx_bytes;
@@ -41,13 +41,13 @@ void hexdump(const char *in, int len, char *out) {
 
 
 class SerialChunker {
-	HardwareSerial &ser;
+	Stream &ser;
 	uint8_t buf[256];
 	int l = 0, timeout = 0, startTime = 0;
 	uint32_t lastRead = 0;
 public:
 	int total = 0;
-	SerialChunker(HardwareSerial &s, int ms = 50) : ser(s), timeout(ms) { }
+	SerialChunker(Stream &s, int ms = 50) : ser(s), timeout(ms) { }
 
 	bool check(std::function<void(const char *, int, int)> f) { 
 		uint32_t ms = millis();
@@ -70,7 +70,7 @@ public:
 uint32_t lastRec; 
 
 SerialChunker sc2(Serial2);
-//SerialChunker sc3(Serial3);
+//SerialChunker sc3(Serial1);
 
 void loop() {
 	esp_task_wdt_reset();
