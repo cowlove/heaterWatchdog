@@ -32,14 +32,11 @@ void setup() {
 int old_rx, old_tx, rx_transitions, tx_transitions, rx_bytes;
 
 
-std::string hexdump(const char *in, int len) {
-	std::string r;
-	char b[3]; 
+void hexdump(const char *in, int len, char *out) { 
 	for (int n = 0; n < len; n++) { 
-		sprintf(b, "%02x", in[n]);
-		r += b;
+		sprintf(out + 2 * n, "%02x", in[n]);
 	}
-	return r;
+	out[2 * len] = '\0';
 }
 
 
@@ -49,6 +46,7 @@ class SerialChunker {
 	int l = 0, timeout = 0, startTime = 0;
 	uint32_t lastRead = 0;
 public:
+	int total = 0;
 	SerialChunker(HardwareSerial &s, int ms = 50) : ser(s), timeout(ms) { }
 
 	bool check(std::function<void(const char *, int, int)> f) { 
@@ -59,6 +57,7 @@ public:
 				startTime = ms;
 			}
 			l += n;
+			total += n;
 			lastRead = ms;
 		}
 		if (ms - lastRead > timeout && l > 0) {
@@ -78,8 +77,8 @@ void loop() {
 	jw.run();
 	if (sec.tick()) {
 		digitalWrite(pins.led, !digitalRead(pins.led));
-		std::string s = strfmt("transitions rx: %d  bytes\n", rx_bytes);
-		//Serial.print(s.c_str());
+		std::string s = strfmt("S2: %d\tS3: %d", sc2.total, 0);//sc3.total);
+		Serial.println(s.c_str());
 		jw.udpDebug(s.c_str());
 	}
 	int rx = digitalRead(pins.rx);
@@ -92,7 +91,9 @@ void loop() {
 
 
 	sc2.check([](const char *b, int l, int t) {
-		std::string s = strfmt("S2 %04d: ", t % 10000) + hexdump(b, l);
+		char hexbuf[2048];
+		hexdump(b, l, hexbuf);
+		std::string s = strfmt("S2 %04d: %s", t % 10000, hexbuf);
 		Serial.println(s.c_str());
 		jw.udpDebug(s.c_str());
 	});
