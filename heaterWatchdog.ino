@@ -1,6 +1,7 @@
 #include "jimlib.h"
 //#include <heltec.h>	
 #include <PubSubClient.h>
+#include <deque>
 
 JimWiFi jw;
 EggTimer sec(100), sec5(5000);
@@ -43,18 +44,35 @@ public:
 	}
 };
 
+struct MsgQueue { 
+	std::deque<std::pair<std::string, int>> v;
+	void add(const char *msg, int count) { 
+		v.push_back(std::pair<std::string, int>(std::string(msg), count)); 
+	}
+	const char *get() {
+		if (!v.empty() && (v.front()).second == 0) { // left at zero, remove 
+			v.pop_front(); 
+		}
+		if (v.empty()) {
+			return NULL;
+		} else {
+			v.front().second--; // decrement count, possibly leaving it zero 
+			return v.front().first.c_str();
+		}
+	}
+} msgQueue;
 
-String msgOverride = "";
+
 void callback(char* topic, byte* payload, unsigned int length) {
   Serial.print("Message arrived [");
   Serial.print(topic);
   Serial.print("] ");
-  String p;
+  std::string p;
   for (int i = 0; i < length; i++) {
     Serial.print((char)payload[i]);
 	p += (char)payload[i];
   }
-  msgOverride = p;
+  msgQueue.add(p.c_str(), 1);
   Serial.println();
 }
 
@@ -63,8 +81,7 @@ void reconnect() {
   if (WiFi.status() == WL_CONNECTED && !client.connected()) {
     Serial.print("Attempting MQTT connection...");
     // Create a random client ID
-    String clientId = "ESP8266Client-";
-    clientId += String(random(0xffff), HEX);
+    String clientId = String("ESP8266Client-") + String(random(0xffff), HEX);
     // Attempt to connect
 	client.setServer("192.168.4.1", 1883);
 	client.setCallback(callback);
@@ -133,36 +150,6 @@ void sendHex(Stream &s, const char *out) {
 uint32_t lastRec; 
 
 
-typedef struct { 
-	const char *pat;
-	int count;
-} CharIntPair; 
-
-CharIntPair patterns[] = {
-	{"fb1b00aaffffff0000525e", 10}, // off and happy
-	{"fb1b0301ffffff01009b67", 3},  // button push to turn on
-	{"fb1b00aaffffff0100616f", 20}, // on happy 
-	{"fb1b0300ffffff0000edf6", 2},  // button push to turn off
-	{"fb1b02aaffffff000032bd", 7},  // turning off
-	{"fb1b00aaffffff0000525e", 10}, // off and happy
-	{"fb1b0301ffffff01009b67", 3},  // button push to turn on
-	{"fb1b00aaffffff0100616f", 20}, // on happy 
-};
-
-struct ResetPatternSequencer {
-	const char *getNext() { 
-		const char *r = patterns[idx].pat;
-		if (++count >= patterns[idx].count) { 
-			idx = min(idx + 1, (int)(sizeof(patterns) / sizeof(patterns[0]) - 1));
-			count = 0;
-		}
-		return r;
-	}
-	void startPattern() { idx = count = 0; }
-	int idx, count;
-} resetPat;
-
-std::string lastS2;
 int state = 0, errCount = 0;
 
 void loop() {
@@ -181,9 +168,8 @@ void loop() {
 		char hexbuf[2048];
 		hexdump(b, l, hexbuf);
 		std::string s = strfmt("\t\t\t\t\tS1 %04d: %s", t % 10000, hexbuf);
-		//Serial.print(lastS2.c_str());
 		Serial.println(s.c_str());
-		//jw.udpDebug(s.c_str());
+		//client.publish("heaterout", s.c_str());
 
 		if (strstr(hexbuf, "fb1b0400") == hexbuf) { 
 			// button push
@@ -198,52 +184,43 @@ void loop() {
 		hexdump(b, l, hexbuf);
 		std::string s = strfmt("S2 %04d: %s", t % 10000, hexbuf);
 		Serial.println(s.c_str());
-		//jw.udpDebug(s.c_str());
+		//client.publish("heaterout", s.c_str());
 	
 		if (strstr(hexbuf, "fa1b100c15") == hexbuf) {
 			if (errCount++ > 20) {
 				std::string s = strfmt("ERROR PACKET %s", hexbuf);
 				Serial.println(s.c_str());
-				jw.udpDebug(s.c_str());
-				resetPat.startPattern();
+				client.publish("heaterout", s.c_str());
+
+				msgQueue.add("fb1b00aaffffff0000525e", 10); // off and happy
+				msgQueue.add("fb1b0301ffffff01009b67", 3);  // button push to turn on
+				msgQueue.add("fb1b00aaffffff0100616f", 20); // on happy 
+				msgQueue.add("fb1b0300ffffff0000edf6", 2);  // button push to turn off
+				msgQueue.add("fb1b02aaffffff000032bd", 7);  // turning off
+				msgQueue.add("fb1b00aaffffff0000525e", 10); // off and happy
+				msgQueue.add("fb1b0301ffffff01009b67", 3);  // button push to turn on
+				msgQueue.add("fb1b00aaffffff0100616f", 20); // on happy 
+
 				errCount = 0;
 			}
 		}
 
-		if (msgOverride.length() > 0) { 
-			sendHex(Serial2, msgOverride.c_str());
-			s = std::string("Sending msg override ") + msgOverride.c_str();
-			msgOverride = "";
+		const char *m = msgQueue.get();
+		if (m != NULL) { 
+			sendHex(Serial2, m);
+			s = std::string("QUEUE: ") + m;
 			client.publish("heaterout", s.c_str());
 		} else { 
-			sendHex(Serial2, resetPat.getNext());
+			sendHex(Serial2, "fb1b00aaffffff0100616f");
 		}
+
 		static int pktCount = 0;
-		s = strfmt("EC %d PKT %d PI %d", errCount, pktCount++, resetPat.idx);
+		s = strfmt("EC %d PKT %d", errCount, pktCount++);
 		Serial.println(s.c_str());
 		jw.udpDebug(s.c_str());
 		client.publish("heaterout", s.c_str());
 	});
 
-
-
-#if 0
-	if (Serial2.available()) {
-		int ms = millis();
-		if (ms - lastRec > 50) {
-			Serial.printf("\n%04d: ", (int)(ms % 10000));
-		}
-		lastRec = ms;
-		char buf[1024];
-		int n = Serial2.readBytes((uint8_t *)buf, sizeof(buf));
-		rx_bytes += n;
-		char hexbuf[2048];
-		hexdump(buf, n, hexbuf);
-		std::string s = hexbuf;
-		//jw.udpDebug(s.c_str());
-		Serial.print(s.c_str());
-	}
-#endif
-	//delay(1);
+	delay(1);
 }
 
