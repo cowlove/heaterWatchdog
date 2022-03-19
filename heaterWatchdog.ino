@@ -4,9 +4,7 @@
 #include <deque>
 
 JimWiFi jw;
-EggTimer sec(100), sec5(5000);
-WiFiClient espClient;
-PubSubClient client(espClient);
+EggTimer sec(1000), sec5(5000);
 
 struct {
 	int led = 2;
@@ -24,7 +22,7 @@ class SerialChunker {
 	uint32_t lastRead = 0;
 public:
 	int total = 0;
-	SerialChunker(Stream &s, int ms = 34) : ser(s), timeout(ms) { }
+	SerialChunker(Stream &s, int ms = 10) : ser(s), timeout(ms) { }
 
 	bool check(std::function<void(const char *, int, int)> f) { 
 		uint32_t ms = millis();
@@ -61,9 +59,53 @@ struct MsgQueue {
 		}
 	}
 } msgQueue;
+void mqttCallback(char* topic, byte* payload, unsigned int length);
 
+class MQTTClient { 
+	WiFiClient espClient;
+	String topicPrefix, server;
+public:
+	PubSubClient client;
+	MQTTClient(const char *s, const char *t) : server(s), topicPrefix(t), client(espClient) {}
+	void publish(const char *suffix, const char *m) { 
+		String t = topicPrefix + "/" + suffix;
+		client.publish(t.c_str(), m);
+	}
+	void reconnect() {
+	// Loop until we're reconnected
+		if (WiFi.status() != WL_CONNECTED || client.connected()) 
+			return;
+		
+		Serial.print("Attempting MQTT connection...");
+		client.setServer("192.168.4.1", 1883);
+		client.setCallback(mqttCallback);
+		if (client.connect(topicPrefix.c_str())) {
+			Serial.println("connected");
+			// Once connected, publish an announcement...
+			String msg = "hello";
+			client.publish((topicPrefix + "/debug").c_str(), msg.c_str());
+			// ... and resubscribe
+			client.subscribe("heaterin");
+			client.setCallback(mqttCallback);
+		} else {
+			Serial.print("failed, rc=");
+			Serial.print(client.state());
+		}
+	}
+	void dprintf(const char *format, ...) { 
+		va_list args;
+		va_start(args, format);
+        char buf[256];
+        vsnprintf(buf, sizeof(buf), format, args);
+	    va_end(args);
+		client.publish((topicPrefix + "/debug").c_str(), buf);
+	}
+	void run() { 
+		reconnect();
+	}
+ } mqtt("192.168.4.1", "heater");
 
-void callback(char* topic, byte* payload, unsigned int length) {
+void mqttCallback(char* topic, byte* payload, unsigned int length) {
   Serial.print("Message arrived [");
   Serial.print(topic);
   Serial.print("] ");
@@ -74,33 +116,6 @@ void callback(char* topic, byte* payload, unsigned int length) {
   }
   msgQueue.add(p.c_str(), 1);
   Serial.println();
-}
-
-void reconnect() {
-  // Loop until we're reconnected
-  if (WiFi.status() == WL_CONNECTED && !client.connected()) {
-    Serial.print("Attempting MQTT connection...");
-    // Create a random client ID
-    String clientId = String("ESP8266Client-") + String(random(0xffff), HEX);
-    // Attempt to connect
-	client.setServer("192.168.4.1", 1883);
-	client.setCallback(callback);
-    if (client.connect(clientId.c_str())) {
-      Serial.println("connected");
-      // Once connected, publish an announcement...
-      String msg = "hello";
-	  client.publish("heaterout", msg.c_str());
-      // ... and resubscribe
-      client.subscribe("heaterin");
-      client.setCallback(callback);
-    } else {
-      Serial.print("failed, rc=");
-      Serial.print(client.state());
-      Serial.println(" try again in 5 seconds");
-      // Wait 5 seconds before retrying
-      //delay(5000);
-    }
-  }
 }
 
 void setup() {
@@ -155,8 +170,7 @@ int state = 0, errCount = 0;
 void loop() {
 	esp_task_wdt_reset();
 	jw.run();
-	reconnect();
-	client.loop();
+	mqtt.run();
 	if (sec.tick()) {
 		digitalWrite(pins.led, !digitalRead(pins.led));
 		//std::string s = strfmt("S1: %d\tS2: %d", sc1.total, sc2.total);
@@ -167,14 +181,27 @@ void loop() {
 	sc1.check([](const char *b, int l, int t) {
 		char hexbuf[2048];
 		hexdump(b, l, hexbuf);
+
+		const char *m = msgQueue.get();
+		if (m != NULL) { 
+			sendHex(Serial2, m);
+			std::string s = std::string("QUEUE: ") + m;
+			mqtt.publish("out", s.c_str());
+		} else { 
+			//sendHex(Serial2, "fb1b00aaffffff0100616f");
+			sendHex(Serial2, hexbuf);
+		}
+
 		std::string s = strfmt("\t\t\t\t\tS1 %04d: %s", t % 10000, hexbuf);
 		Serial.println(s.c_str());
-		//client.publish("heaterout", s.c_str());
+		mqtt.publish("out", s.c_str());
+
+
 
 		if (strstr(hexbuf, "fb1b0400") == hexbuf) { 
 			// button push
 			s = strfmt("BUTTON PUSH ") + hexbuf;
-			client.publish("heaterout", s.c_str());
+			mqtt.dprintf(s.c_str());
 		}
 	});
 
@@ -184,13 +211,13 @@ void loop() {
 		hexdump(b, l, hexbuf);
 		std::string s = strfmt("S2 %04d: %s", t % 10000, hexbuf);
 		Serial.println(s.c_str());
-		//client.publish("heaterout", s.c_str());
+		mqtt.publish("out", s.c_str());
 	
 		if (strstr(hexbuf, "fa1b100c15") == hexbuf) {
 			if (errCount++ > 20) {
 				std::string s = strfmt("ERROR PACKET %s", hexbuf);
 				Serial.println(s.c_str());
-				client.publish("heaterout", s.c_str());
+				mqtt.publish("out", s.c_str());
 
 				msgQueue.add("fb1b00aaffffff0000525e", 10); // off and happy
 				msgQueue.add("fb1b0301ffffff01009b67", 3);  // button push to turn on
@@ -205,20 +232,12 @@ void loop() {
 			}
 		}
 
-		const char *m = msgQueue.get();
-		if (m != NULL) { 
-			sendHex(Serial2, m);
-			s = std::string("QUEUE: ") + m;
-			client.publish("heaterout", s.c_str());
-		} else { 
-			sendHex(Serial2, "fb1b00aaffffff0100616f");
-		}
 
 		static int pktCount = 0;
 		s = strfmt("EC %d PKT %d", errCount, pktCount++);
 		Serial.println(s.c_str());
 		jw.udpDebug(s.c_str());
-		client.publish("heaterout", s.c_str());
+		mqtt.publish("out", s.c_str());
 	});
 
 	delay(1);
