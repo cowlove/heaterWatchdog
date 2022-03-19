@@ -24,6 +24,8 @@ cat:	fixtty
 
 socat:  
 	socat udp-recv:9000 - 
+mocat:
+	mosquitto_sub -h 192.168.4.1 -t "heater/#" -v   
 
 curl: ${BUILD_DIR}/${MAIN_NAME}.bin
 	curl -v --limit-rate 10k --progress-bar -F "image=@${BUILD_DIR}/${MAIN_NAME}.bin" ${OTA_ADDR}/update 

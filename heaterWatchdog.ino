@@ -4,7 +4,6 @@
 #include <deque>
 
 JimWiFi jw;
-EggTimer sec(1000), sec5(5000);
 
 struct {
 	int led = 2;
@@ -44,6 +43,7 @@ public:
 
 struct MsgQueue { 
 	std::deque<std::pair<std::string, int>> v;
+	void clear() { v.clear(); } 
 	void add(const char *msg, int count) { 
 		v.push_back(std::pair<std::string, int>(std::string(msg), count)); 
 	}
@@ -165,7 +165,8 @@ void sendHex(Stream &s, const char *out) {
 uint32_t lastRec; 
 
 
-int state = 0, errCount = 0;
+int state = 0, errCount = 0, resetCount = 0, pktCount = 0;
+EggTimer sec(1000), minute(60000);
 
 void loop() {
 	esp_task_wdt_reset();
@@ -176,6 +177,12 @@ void loop() {
 		//std::string s = strfmt("S1: %d\tS2: %d", sc1.total, sc2.total);
 		//Serial.println(s.c_str());
 		//jw.udpDebug(s.c_str());
+	}
+	
+	// just press some buttons every minute to see if it prevents En errors
+	if (minute.tick()) {  
+		msgQueue.add("fb1b0400230a280100b846", 3);  // set to 35 deg
+		msgQueue.add("fb1b0400300a28010052ce", 3);  // set to 48 deg
 	}
 
 	sc1.check([](const char *b, int l, int t) {
@@ -192,11 +199,9 @@ void loop() {
 			sendHex(Serial2, hexbuf);
 		}
 
-		std::string s = strfmt("\t\t\t\t\tS1 %04d: %s", t % 10000, hexbuf);
+		std::string s = strfmt("S1 %04d: %s", t % 10000, hexbuf);
 		Serial.println(s.c_str());
 		mqtt.publish("out", s.c_str());
-
-
 
 		if (strstr(hexbuf, "fb1b0400") == hexbuf) { 
 			// button push
@@ -205,11 +210,10 @@ void loop() {
 		}
 	});
 
-
 	sc2.check([](const char *b, int l, int t) {
 		char hexbuf[2048];
 		hexdump(b, l, hexbuf);
-		std::string s = strfmt("S2 %04d: %s", t % 10000, hexbuf);
+		std::string s = strfmt("\t\t\t\t\tS2 %04d: %s", t % 10000, hexbuf);
 		Serial.println(s.c_str());
 		mqtt.publish("out", s.c_str());
 	
@@ -218,7 +222,7 @@ void loop() {
 				std::string s = strfmt("ERROR PACKET %s", hexbuf);
 				Serial.println(s.c_str());
 				mqtt.publish("out", s.c_str());
-
+				msgQueue.clear();
 				msgQueue.add("fb1b00aaffffff0000525e", 10); // off and happy
 				msgQueue.add("fb1b0301ffffff01009b67", 3);  // button push to turn on
 				msgQueue.add("fb1b00aaffffff0100616f", 20); // on happy 
@@ -226,17 +230,17 @@ void loop() {
 				msgQueue.add("fb1b02aaffffff000032bd", 7);  // turning off
 				msgQueue.add("fb1b00aaffffff0000525e", 10); // off and happy
 				msgQueue.add("fb1b0301ffffff01009b67", 3);  // button push to turn on
-				msgQueue.add("fb1b00aaffffff0100616f", 20); // on happy 
-
+				msgQueue.add("fb1b0400230a280100b846", 3);  // set to 35 deg
+				msgQueue.add("fb1b00aaffffff0100616f", 300); // on happy 
+				msgQueue.add("fb1b0400300a28010052ce", 3);  // set to 48 deg
 				errCount = 0;
+				resetCount++;
 			}
 		}
 
-
-		static int pktCount = 0;
-		s = strfmt("EC %d PKT %d", errCount, pktCount++);
+		s = strfmt("EC %d PKT %d RESETS %d", errCount, pktCount++, resetCount);
 		Serial.println(s.c_str());
-		jw.udpDebug(s.c_str());
+		//jw.udpDebug(s.c_str());
 		mqtt.publish("out", s.c_str());
 	});
 
