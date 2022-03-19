@@ -1,6 +1,5 @@
 #include "jimlib.h"
 //#include <heltec.h>	
-#include <SoftwareSerial.h>
 
 JimWiFi jw;
 EggTimer sec(100), sec5(5000);
