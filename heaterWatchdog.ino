@@ -1,9 +1,11 @@
 #include "jimlib.h"
 //#include <heltec.h>	
-#include <SoftwareSerial.h>
+#include <PubSubClient.h>
 
 JimWiFi jw;
 EggTimer sec(100), sec5(5000);
+WiFiClient espClient;
+PubSubClient client(espClient);
 
 struct {
 	int led = 2;
@@ -42,14 +44,56 @@ public:
 };
 
 
+String msgOverride = "";
+void callback(char* topic, byte* payload, unsigned int length) {
+  Serial.print("Message arrived [");
+  Serial.print(topic);
+  Serial.print("] ");
+  String p;
+  for (int i = 0; i < length; i++) {
+    Serial.print((char)payload[i]);
+	p += (char)payload[i];
+  }
+  msgOverride = p;
+  Serial.println();
+}
+
+void reconnect() {
+  // Loop until we're reconnected
+  if (WiFi.status() == WL_CONNECTED && !client.connected()) {
+    Serial.print("Attempting MQTT connection...");
+    // Create a random client ID
+    String clientId = "ESP8266Client-";
+    clientId += String(random(0xffff), HEX);
+    // Attempt to connect
+	client.setServer("192.168.4.1", 1883);
+	client.setCallback(callback);
+    if (client.connect(clientId.c_str())) {
+      Serial.println("connected");
+      // Once connected, publish an announcement...
+      String msg = "hello";
+	  client.publish("heaterout", msg.c_str());
+      // ... and resubscribe
+      client.subscribe("heaterin");
+      client.setCallback(callback);
+    } else {
+      Serial.print("failed, rc=");
+      Serial.print(client.state());
+      Serial.println(" try again in 5 seconds");
+      // Wait 5 seconds before retrying
+      //delay(5000);
+    }
+  }
+}
+
 void setup() {
-	esp_task_wdt_init(20, true);
+	esp_task_wdt_init(40, true);
 	esp_task_wdt_add(NULL);
 	//Heltec.begin(true, true, true, true, 915E6);
 	pinMode(pins.led, OUTPUT);
 	digitalWrite(pins.led, 1);
 	Serial.begin(921600, SERIAL_8N1);
-	jw.onConnect([](void) {});
+	jw.onConnect([](void) { });
 	jw.onOTA([](void) {});
 	Serial2.begin(4800, SERIAL_8N1, pins.rxHeater, pins.txHeater, false);
 	Serial2.setTimeout(1);
@@ -124,6 +168,8 @@ int state = 0, errCount = 0;
 void loop() {
 	esp_task_wdt_reset();
 	jw.run();
+	reconnect();
+	client.loop();
 	if (sec.tick()) {
 		digitalWrite(pins.led, !digitalRead(pins.led));
 		//std::string s = strfmt("S1: %d\tS2: %d", sc1.total, sc2.total);
@@ -138,6 +184,12 @@ void loop() {
 		//Serial.print(lastS2.c_str());
 		Serial.println(s.c_str());
 		//jw.udpDebug(s.c_str());
+
+		if (strstr(hexbuf, "fb1b0400") == hexbuf) { 
+			// button push
+			s = strfmt("BUTTON PUSH ") + hexbuf;
+			client.publish("heaterout", s.c_str());
+		}
 	});
 
 
@@ -157,12 +209,20 @@ void loop() {
 				errCount = 0;
 			}
 		}
-		sendHex(Serial2, resetPat.getNext());
 
+		if (msgOverride.length() > 0) { 
+			sendHex(Serial2, msgOverride.c_str());
+			s = std::string("Sending msg override ") + msgOverride.c_str();
+			msgOverride = "";
+			client.publish("heaterout", s.c_str());
+		} else { 
+			sendHex(Serial2, resetPat.getNext());
+		}
 		static int pktCount = 0;
-		s = strfmt("EC %d PKT %d PI %d\n", errCount, pktCount++, resetPat.idx);
+		s = strfmt("EC %d PKT %d PI %d", errCount, pktCount++, resetPat.idx);
 		Serial.println(s.c_str());
 		jw.udpDebug(s.c_str());
+		client.publish("heaterout", s.c_str());
 	});
 
 
