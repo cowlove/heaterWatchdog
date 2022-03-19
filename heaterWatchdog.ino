@@ -77,7 +77,7 @@ public:
 			return;
 		
 		Serial.print("Attempting MQTT connection...");
-		client.setServer("192.168.4.1", 1883);
+		client.setServer(server.c_str(), 1883);
 		client.setCallback(mqttCallback);
 		if (client.connect(topicPrefix.c_str())) {
 			Serial.println("connected");
@@ -85,7 +85,7 @@ public:
 			String msg = "hello";
 			client.publish((topicPrefix + "/debug").c_str(), msg.c_str());
 			// ... and resubscribe
-			client.subscribe("heaterin");
+			client.subscribe((topicPrefix + "/in").c_str());
 			client.setCallback(mqttCallback);
 		} else {
 			Serial.print("failed, rc=");
@@ -103,7 +103,9 @@ public:
 	void run() { 
 		reconnect();
 	}
- } mqtt("192.168.4.1", "heater");
+ };
+ 
+MQTTClient mqtt("192.168.4.1", "heater");
 
 void mqttCallback(char* topic, byte* payload, unsigned int length) {
   Serial.print("Message arrived [");
@@ -179,8 +181,8 @@ void loop() {
 		//jw.udpDebug(s.c_str());
 	}
 	
-	// just press some buttons every minute to see if it prevents En errors
-	if (minute.tick()) {  
+	// just press some buttons every minute to see if it prevents En errors	
+	if (0 && /*it doesn't*/ minute.tick()) {  
 		msgQueue.add("fb1b0400230a280100b846", 3);  // set to 35 deg
 		msgQueue.add("fb1b0400300a28010052ce", 3);  // set to 48 deg
 	}
