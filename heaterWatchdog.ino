@@ -196,6 +196,9 @@ void loop() {
 		//std::string s = strfmt("S1: %d\tS2: %d", sc1.total, sc2.total);
 		//Serial.println(s.c_str());
 		//jw.udpDebug(s.c_str());
+		String pkt("fb1b0400230a280100");
+		addCrc(pkt);
+		mqtt.publish("out", pkt.c_str());
 	}
 	
 	// just press some buttons every minute to see if it prevents En errors	
