@@ -196,14 +196,16 @@ void loop() {
 	if (sec.tick()) {
 		digitalWrite(pins.led, !digitalRead(pins.led));
 
-		// TMP test crc code 
-		String pkt("fb1b00aaffffff0100");
-		addCrc(pkt, 0xfb00);
-		mqtt.publish("out", pkt + " CRC should be 616f");
+		if (0) { 
+			// TMP test crc code 
+			String pkt("fb1b00aaffffff0100");
+			addCrc(pkt, 0xfb00);
+			mqtt.publish("out", pkt + " CRC should be 616f");
 
-		pkt = String("fa1b1209c27f8e1400000000010010");
-		addCrc(pkt, 0xfa00);
-		mqtt.publish("out", pkt + " CRC should be 1b71");
+			pkt = String("fa1b1209c27f8e1400000000010010");
+			addCrc(pkt, 0xfa00);
+			mqtt.publish("out", pkt + " CRC should be 1b71");
+		}
 	}
 	
 	//fb1b0400230a2801005365//
