@@ -122,9 +122,8 @@ void mqttCallback(char* topic, byte* payload, unsigned int length) {
   Serial.println();
 }
 
-
-
-void hexdump(const char *in, int len, char *out) { 
+void bin2hex(const char *in, int len, char *out, int olen) {
+	len = min(len, olen / 2); 
 	for (int n = 0; n < len; n++) { 
 		sprintf(out + 2 * n, "%02x", in[n]);
 	}
@@ -208,8 +207,8 @@ void loop() {
 	}
 
 	sc1.check([](const char *b, int l, int t) {
-		char hexbuf[2048];
-		hexdump(b, l, hexbuf);
+		char hexbuf[1024];
+		bin2hex(b, l, hexbuf, sizeof(hexbuf));
 
 		const char *m = msgQueue.get();
 		if (m != NULL) { 
@@ -233,8 +232,8 @@ void loop() {
 	});
 
 	sc2.check([](const char *b, int l, int t) {
-		char hexbuf[2048];
-		hexdump(b, l, hexbuf);
+		char hexbuf[1024];
+		bin2hex(b, l, hexbuf, sizeof(hexbuf));
 		std::string s = strfmt("\t\t\t\t\tS2 %04d: %s", t % 10000, hexbuf);
 		Serial.println(s.c_str());
 		mqtt.publish("out", s.c_str());
