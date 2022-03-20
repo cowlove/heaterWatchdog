@@ -189,6 +189,10 @@ void loop() {
 	esp_task_wdt_reset();
 	jw.run();
 	mqtt.run();
+
+	if (millis() > 60 * 60 * 1000) { // reboot every hour to keep OTA working? 
+		ESP.restart();
+	}
 	if (sec.tick()) {
 		digitalWrite(pins.led, !digitalRead(pins.led));
 
