@@ -1,4 +1,6 @@
 #include "jimlib.h"
+#include "crc16heater.h"
+#include "crc16heater.c"
 //#include <heltec.h>	
 #include <PubSubClient.h>
 #include <deque>
@@ -120,6 +122,43 @@ void mqttCallback(char* topic, byte* payload, unsigned int length) {
   Serial.println();
 }
 
+
+
+void hexdump(const char *in, int len, char *out) { 
+	for (int n = 0; n < len; n++) { 
+		sprintf(out + 2 * n, "%02x", in[n]);
+	}
+	out[2 * len] = '\0';
+}
+
+int hex2bin(const char *in, char *out, int outlen) { 
+        int l = min((int)strlen(in), outlen / 2);
+        for (const char *p = in; p < in + l ; p += 2) { 
+                char b[3];
+                b[0] = p[0];
+                b[1] = p[1];
+                b[2] = 0;
+                int c;
+                sscanf(b, "%x", &c);
+                *(out++) = c;
+        }
+        return strlen(in) / 2;
+}
+
+void addCrc(String &s) {
+	char buf[1024];
+	int l = hex2bin(s.c_str(), buf, sizeof(buf));
+	uint16_t crc = crc16heater_word(0xfa00, buf, l);
+	s += strfmt("%04x", (int)crc).c_str();
+}
+
+void sendHex(Stream &s, const char *out) {
+	char buf[1024];
+	int l = hex2bin(out, buf, sizeof(buf)); 
+	s.write(buf, l);
+	Serial.printf(">> %04d: %s\n", millis() % 10000, out);
+}
+
 void setup() {
 	esp_task_wdt_init(40, true);
 	esp_task_wdt_add(NULL);
@@ -133,39 +172,17 @@ void setup() {
 	Serial2.setTimeout(1);
 	Serial1.begin(4800, SERIAL_8N1, pins.rxDisplay, -1, false);
 	Serial1.setTimeout(1);
-	Serial.println("Restart");
+	Serial.println("Restart");	
+
+	String pkt("fb1b0400230a280100");
+	addCrc(pkt);
+	Serial.println(pkt);
 }
 
 SerialChunker sc1(Serial1);
 SerialChunker sc2(Serial2);
 
-
-
-void hexdump(const char *in, int len, char *out) { 
-	for (int n = 0; n < len; n++) { 
-		sprintf(out + 2 * n, "%02x", in[n]);
-	}
-	out[2 * len] = '\0';
-}
-
-
-void sendHex(Stream &s, const char *out) { 
-	int l = strlen(out);
-	for (const char *p = out; p < out + l; p += 2) { 
-		char b[3];
-		b[0] = p[0];
-		b[1] = p[1];
-		b[2] = 0;
-		int c;
-		sscanf(b, "%x", &c);
-		s.write(c);
-	}
-	//s.flush();
-	Serial.printf(">> %04d: %s\n", millis() % 10000, out);
-}
-
 uint32_t lastRec; 
-
 
 int state = 0, errCount = 0, resetCount = 0, pktCount = 0;
 EggTimer sec(1000), minute(60000);

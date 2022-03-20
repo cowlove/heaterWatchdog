@@ -1,7 +1,7 @@
 #include "crc16heater.h"
 
 uint16_t crc16heater_bit(uint16_t crc, void const *mem, size_t len) {
-    unsigned char const *data = mem;
+    unsigned char const *data = (unsigned const char *)mem;
     if (data == NULL)
         return 0xfa00;
     for (size_t i = 0; i < len; i++) {
@@ -263,7 +263,7 @@ static uint16_t const table_word[][256] = {
 };
 
 uint16_t crc16heater_byte(uint16_t crc, void const *mem, size_t len) {
-    unsigned char const *data = mem;
+    unsigned char const *data = (unsigned const char *)mem;
     if (data == NULL)
         return 0xfa00;
     for (size_t i = 0; i < len; i++) {
@@ -282,7 +282,7 @@ static inline uint16_t swaplow(uint16_t crc) {
 // This code assumes that integers are stored little-endian.
 
 uint16_t crc16heater_word(uint16_t crc, void const *mem, size_t len) {
-    unsigned char const *data = mem;
+    unsigned char const *data = (unsigned const char *)mem;
     if (data == NULL)
         return 0xfa00;
     while (len && ((ptrdiff_t)data & 0x7)) {
