@@ -34,7 +34,7 @@ int main(int argc, char **argv) {
 	char buf[1024];
 	int l = hex2bin(argv[1], buf);
 	uint16_t crc = 0xfa00;
-	crc = crc16heater_word(crc, buf, l);
+	crc = crc16heater_byte(crc, buf, l);
 	printf("%04x\n", (int)crc);
 	return 0;
 }

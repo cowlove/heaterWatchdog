@@ -31,3 +31,8 @@ curl: ${BUILD_DIR}/${MAIN_NAME}.bin
 	curl -v --limit-rate 10k --progress-bar -F "image=@${BUILD_DIR}/${MAIN_NAME}.bin" ${OTA_ADDR}/update  > /dev/null
 
 
+crctest:
+	gcc -o crc16heater_test crc16heater_test.c crc16heater.c
+	echo Should show fb1b0400230a280100
+	./crc16heater_test fb1b0400230a280100
+

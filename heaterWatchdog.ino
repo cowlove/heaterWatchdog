@@ -73,6 +73,9 @@ public:
 		String t = topicPrefix + "/" + suffix;
 		client.publish(t.c_str(), m);
 	}
+	void publish(const char *suffix, const String &m) {
+		 publish(suffix, m.c_str()); 
+	}
 	void reconnect() {
 	// Loop until we're reconnected
 		if (WiFi.status() != WL_CONNECTED || client.connected()) 
@@ -144,10 +147,10 @@ int hex2bin(const char *in, char *out, int outlen) {
         return strlen(in) / 2;
 }
 
-void addCrc(String &s) {
+void addCrc(String &s, uint16_t crc) {
 	char buf[1024];
 	int l = hex2bin(s.c_str(), buf, sizeof(buf));
-	uint16_t crc = crc16heater_word(0xfa00, buf, l);
+	crc = crc16heater_byte(crc, buf, l);
 	s += strfmt("%04x", (int)crc).c_str();
 }
 
@@ -172,10 +175,6 @@ void setup() {
 	Serial1.begin(4800, SERIAL_8N1, pins.rxDisplay, -1, false);
 	Serial1.setTimeout(1);
 	Serial.println("Restart");	
-
-	String pkt("fb1b0400230a280100");
-	addCrc(pkt);
-	Serial.println(pkt);
 }
 
 SerialChunker sc1(Serial1);
@@ -192,14 +191,18 @@ void loop() {
 	mqtt.run();
 	if (sec.tick()) {
 		digitalWrite(pins.led, !digitalRead(pins.led));
-		//std::string s = strfmt("S1: %d\tS2: %d", sc1.total, sc2.total);
-		//Serial.println(s.c_str());
-		//jw.udpDebug(s.c_str());
-		String pkt("fb1b0400230a280100");
-		addCrc(pkt);
-		mqtt.publish("out", pkt.c_str());
+
+		// TMP test crc code 
+		String pkt("fb1b00aaffffff0100");
+		addCrc(pkt, 0xfb00);
+		mqtt.publish("out", pkt + " CRC should be 616f");
+
+		pkt = String("fa1b1209c27f8e1400000000010010");
+		addCrc(pkt, 0xfa00);
+		mqtt.publish("out", pkt + " CRC should be 1b71");
 	}
 	
+	//fb1b0400230a2801005365//
 	// just press some buttons every minute to see if it prevents En errors	
 	if (0 && /*it doesn't*/ minute.tick()) {  
 		msgQueue.add("fb1b0400230a280100b846", 3);  // set to 35 deg
