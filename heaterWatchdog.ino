@@ -122,6 +122,7 @@ void mqttCallback(char* topic, byte* payload, unsigned int length) {
 	p += (char)payload[i];
   }
   msgQueue.add(p.c_str(), 1);
+  mqtt.publish("heater/out", "got mqtt message");
   Serial.println();
 }
 
