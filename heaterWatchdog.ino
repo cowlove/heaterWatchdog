@@ -114,6 +114,23 @@ public:
  
 MQTTClient mqtt("192.168.4.1", "heater");
 
+
+std::vector<std::string> split(const std::string& text, const std::string& delims)
+{
+    std::vector<std::string> tokens;
+    std::size_t start = text.find_first_not_of(delims), end = 0;
+
+    while((end = text.find_first_of(delims, start)) != std::string::npos)
+    {
+        tokens.push_back(text.substr(start, end - start));
+        start = text.find_first_not_of(delims, end);
+    }
+    if(start != std::string::npos)
+        tokens.push_back(text.substr(start));
+
+    return tokens;
+}
+
 void mqttCallback(char* topic, byte* payload, unsigned int length) {
   Serial.print("Message arrived [");
   Serial.print(topic);
@@ -123,7 +140,12 @@ void mqttCallback(char* topic, byte* payload, unsigned int length) {
     Serial.print((char)payload[i]);
 	p += (char)payload[i];
   }
-  msgQueue.add(p.c_str(), 1);
+  std::vector<std::string> words = split(p, std::string(" "));
+  int count = 1;
+  if (words.size() > 1) 
+	count = atoi(words[1].c_str());
+  if (words.size() > 0) 
+	  msgQueue.add(words[0].c_str(), count);
   mqtt.publish("heater/out", "got mqtt message");
   Serial.println();
 }
@@ -251,8 +273,9 @@ void loop() {
 		Serial.println(s.c_str());
 		mqtt.publish("out", s.c_str());
 	
-		if (strstr(hexbuf, "fa1b100c15") == hexbuf) {
-			if (errCount++ > 20) {
+		if (strstr(hexbuf, "fa1b100c15") == hexbuf || // Error, shut down 
+			strstr(hexbuf, "fa1b100c35") == hexbuf) { // Error, shutdown in progress
+			if (errCount++ > 13) {
 				std::string s = strfmt("ERROR PACKET %s", hexbuf);
 				Serial.println(s.c_str());
 				mqtt.publish("out", s.c_str());
@@ -264,9 +287,9 @@ void loop() {
 				msgQueue.add("fb1b02aaffffff000032bd", 7);  // turning off
 				msgQueue.add("fb1b00aaffffff0000525e", 10); // off and happy
 				msgQueue.add("fb1b0301ffffff01009b67", 3);  // button push to turn on
-				msgQueue.add(addCrc(Sfmt("fb1b0400%02x0a280100", 0x27), 0xfb00), 3);
-				msgQueue.add("fb1b00aaffffff0100616f", 300); // on happy 
-				msgQueue.add("fb1b0400300a28010052ce", 3);  // set to 48 deg
+				// Have to send a temp command at least 200 times to make it stick 
+				msgQueue.add(addCrc(Sfmt("fb1b0400%02x0a280100", 0x25), 0xfb00), 220); // set temp to 35
+				msgQueue.add(addCrc(Sfmt("fb1b0400%02x0a280100", 0x30), 0xfb00), 220); // set temp higher 
 				errCount = 0;
 				resetCount++;
 			}

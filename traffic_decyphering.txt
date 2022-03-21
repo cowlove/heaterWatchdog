@@ -1,3 +1,7 @@
+#inexplicably idle(DUH heat was off) 
+0c010400302c280000210000 015c0028140a2a2c2e280000 09c27f8e1400000000010010 002500000000780000000000
+
+
 # Visual analysis of packet entropy
 cat longrun2.out | ./entropy.py | ./chardiffArray.py | avg.pl 40 | ./table3pm3d.py > map.dat  && gnuplot -e 'set pm3d; unset key; unset colorbox; splot "./map.dat" w pm3d; pause 100'
 
