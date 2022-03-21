@@ -106,6 +106,7 @@ public:
 		client.publish((topicPrefix + "/debug").c_str(), buf);
 	}
 	void run() { 
+		client.loop();
 		reconnect();
 	}
  };
