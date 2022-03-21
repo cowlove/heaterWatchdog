@@ -44,10 +44,11 @@ public:
 };
 
 struct MsgQueue { 
-	std::deque<std::pair<std::string, int>> v;
+	std::deque<std::pair<String, int>> v;
 	void clear() { v.clear(); } 
+	void add(const String &msg, int count) { return add(msg.c_str(), count); }  
 	void add(const char *msg, int count) { 
-		v.push_back(std::pair<std::string, int>(std::string(msg), count)); 
+		v.push_back(std::pair<String, int>(String(msg), count)); 
 	}
 	const char *get() {
 		if (!v.empty() && (v.front()).second == 0) { // left at zero, remove 
@@ -148,11 +149,11 @@ int hex2bin(const char *in, char *out, int outlen) {
         return strlen(in) / 2;
 }
 
-void addCrc(String &s, uint16_t crc) {
+String addCrc(const String &s, uint16_t crc) {
 	char buf[1024];
 	int l = hex2bin(s.c_str(), buf, sizeof(buf));
 	crc = crc16heater_byte(crc, buf, l);
-	s += strfmt("%04x", (int)crc).c_str();
+	return s + strfmt("%04x", (int)crc).c_str();
 }
 
 void sendHex(Stream &s, const char *out) {
@@ -177,6 +178,7 @@ void setup() {
 	Serial1.setTimeout(1);
 	Serial.println("Restart");	
 }
+
 
 SerialChunker sc1(Serial1);
 SerialChunker sc2(Serial2);
@@ -261,7 +263,7 @@ void loop() {
 				msgQueue.add("fb1b02aaffffff000032bd", 7);  // turning off
 				msgQueue.add("fb1b00aaffffff0000525e", 10); // off and happy
 				msgQueue.add("fb1b0301ffffff01009b67", 3);  // button push to turn on
-				msgQueue.add("fb1b0400230a280100b846", 3);  // set to 35 deg
+				msgQueue.add(addCrc(Sfmt("fb1b0400%02x0a280100", 0x27), 0xfb00), 3);
 				msgQueue.add("fb1b00aaffffff0100616f", 300); // on happy 
 				msgQueue.add("fb1b0400300a28010052ce", 3);  // set to 48 deg
 				errCount = 0;
