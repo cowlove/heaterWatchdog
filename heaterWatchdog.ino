@@ -209,8 +209,9 @@ SerialChunker sc2(Serial2);
 uint32_t lastRec; 
 
 int state = 0, errCount = 0, resetCount = 0, pktCount = 0;
-EggTimer sec(1000), minute(60000);
+EggTimer sec(1000), minute(60000), min2(60*1000*2); 
 
+int cmdTemp = 0x25; 
 void loop() {
 	esp_task_wdt_reset();
 	jw.run();
@@ -274,11 +275,14 @@ void loop() {
 		mqtt.publish("out", s.c_str());
 	
 		if (strstr(hexbuf, "fa1b100c15") == hexbuf || // Error, shut down 
-			strstr(hexbuf, "fa1b100c35") == hexbuf) { // Error, shutdown in progress
-			if (errCount++ > 13) {
-				std::string s = strfmt("ERROR PACKET %s", hexbuf);
-				Serial.println(s.c_str());
-				mqtt.publish("out", s.c_str());
+			strstr(hexbuf, "fa1b100c35") == hexbuf || // Error, shutdown in progress
+			strstr(hexbuf, "fa1b100c1004") == hexbuf //   heater off with water flow 
+			) { 
+			std::string s = strfmt("ERROR #%d PACKET %s", errCount + 1, hexbuf);
+			Serial.println(s.c_str());
+			mqtt.publish("out", s.c_str());
+
+			if (errCount++ > 20) {
 				msgQueue.clear();
 				msgQueue.add("fb1b00aaffffff0000525e", 10); // off and happy
 				msgQueue.add("fb1b0301ffffff01009b67", 3);  // button push to turn on
@@ -287,15 +291,24 @@ void loop() {
 				msgQueue.add("fb1b02aaffffff000032bd", 7);  // turning off
 				msgQueue.add("fb1b00aaffffff0000525e", 10); // off and happy
 				msgQueue.add("fb1b0301ffffff01009b67", 3);  // button push to turn on
-				// Have to send a temp command at least 200 times to make it stick 
-				msgQueue.add(addCrc(Sfmt("fb1b0400%02x0a280100", 0x25), 0xfb00), 220); // set temp to 35
-				msgQueue.add(addCrc(Sfmt("fb1b0400%02x0a280100", 0x30), 0xfb00), 220); // set temp higher 
+				// Have to send a temp command at least 200 times to make it stick
+				cmdTemp = 37; 
+				msgQueue.add(addCrc(Sfmt("fb1b0400%02x0a280100", cmdTemp), 0xfb00), 220); // set temp to 35
+				min2.reset();
 				errCount = 0;
 				resetCount++;
 			}
 		}
 
-		s = strfmt("EC %d PKT %d RESETS %d", errCount, pktCount++, resetCount);
+		if (min2.tick()) { 
+			if (cmdTemp < 55) {
+				cmdTemp++;
+				msgQueue.add(addCrc(Sfmt("fb1b0400%02x0a280100", cmdTemp), 0xfb00), 220); 
+			}
+		}
+
+		s = strfmt("EC %d PKT %d RESETS %d QSIZE %d TEMP %d", errCount, pktCount++, resetCount,
+			msgQueue.v.size(), cmdTemp);
 		Serial.println(s.c_str());
 		//jw.udpDebug(s.c_str());
 		mqtt.publish("out", s.c_str());

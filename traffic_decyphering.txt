@@ -1,6 +1,11 @@
-#inexplicably idle(DUH heat was off) 
-0c010400302c280000210000 015c0028140a2a2c2e280000 09c27f8e1400000000010010 002500000000780000000000
 
+
+Error sequence leading to E1 
+0c720400252b23047f21005d Running happily 
+0c350400252b23000221005d first hint of error
+0c750400252923000221005d 
+0c350400252623000221005c
+0c150400252623000221005d fan turns off 
 
 # Visual analysis of packet entropy
 cat longrun2.out | ./entropy.py | ./chardiffArray.py | avg.pl 40 | ./table3pm3d.py > map.dat  && gnuplot -e 'set pm3d; unset key; unset colorbox; splot "./map.dat" w pm3d; pause 100'
