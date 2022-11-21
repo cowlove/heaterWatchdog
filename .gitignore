@@ -3,3 +3,4 @@ longrun2.out
 map.dat
 testresult.out
 heaterWatchdog_csim
+crc16heater_test
