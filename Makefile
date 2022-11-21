@@ -36,3 +36,8 @@ crctest:
 	echo Should show fb1b0400230a280100
 	./crc16heater_test fb1b0400230a280100
 
+${MAIN_NAME}_csim:      ${MAIN_NAME}.ino ${HOME}/Arduino/libraries/*jimlib/src/jimlib.h ${HOME}/Arduino/libraries/*jimlib/src/ESP32sim_ubuntu.h
+	g++  -DGIT_VERSION=\"$(GIT_VERSION)\" -x c++ -g $< -o $@ -DESP8266 -DUBUNTU -I./ -I ${HOME}/Arduino/libraries/*jimlib/src 
+
+csim: ${MAIN_NAME}_csim 
+
