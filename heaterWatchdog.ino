@@ -10,7 +10,7 @@
 JStuff j;
 
 struct {
-	int led = 2;
+	//int led = 2;
 	int rxHeater = 17;
 	int txHeater = 16;
 	int rxDisplay = 22;
@@ -29,6 +29,7 @@ public:
 
 	void check(std::function<void(const char *, int, int)> f) { 
 		uint32_t ms = millis();
+		ser.setTimeout(1);
 		if (ser.available() && l < sizeof(buf)) {
 			int n = ser.readBytes(buf + l, sizeof(buf) - l);
 			if (n > 0 && l == 0) { 
@@ -64,7 +65,8 @@ struct MsgQueue {
 		}
 	}
 } msgQueue;
-void mqttCallback(char* topic, byte* payload, unsigned int length);
+
+//void mqttCallback(char* topic, byte* payload, unsigned int length);
 
 
 
@@ -87,19 +89,20 @@ std::vector<std::string> split(const std::string& text, const std::string& delim
 
 String addCrc(const String &s, uint16_t crc) {
 	char buf[1024];
-	int l = hex2bin(s.c_str(), buf, sizeof(buf));
+	int l = hex2bin(s.c_str(), buf, min((int)sizeof(buf) * 2, s.length()));
 	crc = crc16heater_byte(crc, buf, l);
 	return s + strfmt("%04x", (int)crc).c_str();
 }
 
 void sendHex(Stream &s, const char *out) {
 	char buf[1024];
-	int l = hex2bin(out, buf, sizeof(buf)); 
+	int l = hex2bin(out, buf, min((int)sizeof(buf) * 2, (int)strlen(out))); 
 	s.write((uint8_t *)buf, l);
-	Serial.printf(">> %04d: %s\n", millis() % 10000, out);
+	//Serial.printf(">> %04d: %d %s\n", (int)(millis() % 10000), l, out);
 }
 
 void setup() {
+	j.begin();
 	esp_task_wdt_init(40, true);
 	esp_task_wdt_add(NULL);
 	Serial2.begin(4800, SERIAL_8N1, pins.rxHeater, pins.txHeater, false);
@@ -114,7 +117,8 @@ SerialChunker sc2(Serial2);
 uint32_t lastRec; 
 
 int state = 0, errCount = 0, resetCount = 0, pktCount = 0;
-EggTimer sec(1000), minute(60000), min2(60*1000*2); 
+
+CLI_VARIABLE_INT(test, 2);
 
 int cmdTemp = 0x25; 
 void loop() {
@@ -124,8 +128,8 @@ void loop() {
 	if (millis() > 60 * 60 * 1000) { // reboot every hour to keep OTA working? 
 		ESP.restart();
 	}
-	if (sec.tick()) {
-		digitalWrite(pins.led, !digitalRead(pins.led));
+	if (j.secTick(1)) {
+		//digitalWrite(pins.led, !digitalRead(pins.led));
 
 		if (0) { 
 			// TMP test crc code 
@@ -141,7 +145,7 @@ void loop() {
 	
 	//fb1b0400230a2801005365//
 	// just press some buttons every minute to see if it prevents En errors	
-	if (0 && /*it doesn't*/ minute.tick()) {  
+	if (0 && /*it doesn't*/ j.secTick(60)) {  
 		msgQueue.add("fb1b0400230a280100b846", 3);  // set to 35 deg
 		msgQueue.add("fb1b0400300a28010052ce", 3);  // set to 48 deg
 	}
@@ -153,17 +157,16 @@ void loop() {
 		const char *m = msgQueue.get();
 		if (m != NULL) { 
 			sendHex(Serial2, m);
-			OUT("QUEUE: %s", m);
+			LOG(3, "S1X%04d: %s", t % 10000, hexbuf);
 		} else { 
 			//sendHex(Serial2, "fb1b00aaffffff0100616f");
 			sendHex(Serial2, hexbuf);
+			LOG(3, "S1 %04d: %s", t % 10000, hexbuf);
 		}
-
-		OUT("S1 %04d: %s", t % 10000, hexbuf);
-
+	
 		if (strstr(hexbuf, "fb1b0400") == hexbuf) { 
 			// button push
-			OUT("BUTTON PUSH %s", hexbuf);
+			LOG(2, "BUTTON PUSH %s", hexbuf);
 		}
 	});
 
@@ -171,13 +174,14 @@ void loop() {
 		char hexbuf[1024];
 		bin2hex(b, l, hexbuf, sizeof(hexbuf));
 		std::string s = strfmt("\t\t\t\t\tS2 %04d: %s", t % 10000, hexbuf);
-		OUT(s.c_str());
+		LOG(3, s.c_str());
 	
 		if (strstr(hexbuf, "fa1b100c15") == hexbuf || // Error, shut down 
+			strstr(hexbuf, "fa1b100c1d") == hexbuf ||
 			strstr(hexbuf, "fa1b100c35") == hexbuf || // Error, shutdown in progress
 			strstr(hexbuf, "fa1b100c1004") == hexbuf //   heater off with water flow 
 			) { 
-			OUT("ERROR #%d PACKET %s", errCount + 1, hexbuf);
+			LOG(1, "ERROR #%02d PACKET %s", errCount + 1, hexbuf);
 
 			if (errCount++ > 20) {
 				msgQueue.clear();
@@ -189,24 +193,26 @@ void loop() {
 				msgQueue.add("fb1b00aaffffff0000525e", 10); // off and happy
 				msgQueue.add("fb1b0301ffffff01009b67", 3);  // button push to turn on
 				// Have to send a temp command at least 200 times to make it stick
-				cmdTemp = 37; 
-				msgQueue.add(addCrc(Sfmt("fb1b0400%02x0a280100", cmdTemp), 0xfb00), 220); // set temp to 35
-				min2.reset();
+				cmdTemp = 35; 
+				msgQueue.add(addCrc(Sfmt("fb1b0400%02x0a280100", cmdTemp), 0xfb00), 250); // set temp to 35
+				//min2.reset();
 				errCount = 0;
 				resetCount++;
 			}
 		}
-		OUT("EC %d PKT %d RESETS %d QSIZE %d TEMP %d", errCount, pktCount++, resetCount,
-			msgQueue.v.size(), cmdTemp);
 	});
-	if (min2.tick()) { 
+
+	if (j.secTick(5)) { 
+		LOG(2, "EC %d PKT %d RESETS %d QSIZE %d TEMP %d", errCount, pktCount++, resetCount,
+			msgQueue.v.size(), cmdTemp);
+	}
+	if (j.secTick(120)) { 
 		if (cmdTemp < 55) {
 			cmdTemp++;
 			msgQueue.add(addCrc(Sfmt("fb1b0400%02x0a280100", cmdTemp), 0xfb00), 220); 
+			LOG(1, "Increase temp to %d", cmdTemp);
 		}
-		OUT("Set temp to %d", cmdTemp);
 	}
-
 	delay(10);
 }
 
