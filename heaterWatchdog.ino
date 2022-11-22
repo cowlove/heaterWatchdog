@@ -203,6 +203,7 @@ void loop() {
 				//min2.reset();
 				errCount = 0;
 				resetCount++;
+				LOG(1, "Boiler reset, set temp to %d, inlet temp %d", (int)cmdTemp, inletTemp);
 			}
 		}
 	});
