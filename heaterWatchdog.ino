@@ -89,7 +89,7 @@ std::vector<std::string> split(const std::string& text, const std::string& delim
 
 String addCrc(const String &s, uint16_t crc) {
 	char buf[1024];
-	int l = hex2bin(s.c_str(), buf, min((int)sizeof(buf) * 2, s.length()));
+	int l = hex2bin(s.c_str(), buf, min((int)sizeof(buf) * 2, (int)s.length()));
 	crc = crc16heater_byte(crc, buf, l);
 	return s + strfmt("%04x", (int)crc).c_str();
 }
@@ -118,14 +118,16 @@ uint32_t lastRec;
 
 int state = 0, errCount = 0, resetCount = 0, pktCount = 0;
 
-CLI_VARIABLE_INT(test, 2);
+CLI_VARIABLE_INT(maxBoilerTemp, 35);
+CLI_VARIABLE_INT(minBoilerTemp, 38);
+CLI_VARIABLE_INT(cmdTemp, 35);
+int inletTemp = 0;
 
-int cmdTemp = 0x25; 
 void loop() {
 	esp_task_wdt_reset();
 	j.run();
 
-	if (millis() > 60 * 60 * 1000) { // reboot every hour to keep OTA working? 
+	if (0 && millis() > 60 * 60 * 1000) { // reboot every hour to keep OTA working? 
 		ESP.restart();
 	}
 	if (j.secTick(1)) {
@@ -176,6 +178,9 @@ void loop() {
 		std::string s = strfmt("\t\t\t\t\tS2 %04d: %s", t % 10000, hexbuf);
 		LOG(3, s.c_str());
 	
+		if (strstr(hexbuf, "fa1b100c") == hexbuf) { 
+			inletTemp = b[9];
+		}
 		if (strstr(hexbuf, "fa1b100c15") == hexbuf || // Error, shut down 
 			strstr(hexbuf, "fa1b100c1d") == hexbuf ||
 			strstr(hexbuf, "fa1b100c35") == hexbuf || // Error, shutdown in progress
@@ -193,8 +198,8 @@ void loop() {
 				msgQueue.add("fb1b00aaffffff0000525e", 10); // off and happy
 				msgQueue.add("fb1b0301ffffff01009b67", 3);  // button push to turn on
 				// Have to send a temp command at least 200 times to make it stick
-				cmdTemp = 35; 
-				msgQueue.add(addCrc(Sfmt("fb1b0400%02x0a280100", cmdTemp), 0xfb00), 250); // set temp to 35
+				cmdTemp = minBoilerTemp; 
+				msgQueue.add(addCrc(Sfmt("fb1b0400%02x0a280100", (int)cmdTemp), 0xfb00), 250); // set temp to 35
 				//min2.reset();
 				errCount = 0;
 				resetCount++;
@@ -203,14 +208,14 @@ void loop() {
 	});
 
 	if (j.secTick(5)) { 
-		LOG(2, "EC %d PKT %d RESETS %d QSIZE %d TEMP %d", errCount, pktCount++, resetCount,
-			msgQueue.v.size(), cmdTemp);
+		LOG(2, "EC %d PKT %d RESETS %d QSIZE %d TEMP %d INLET %d", errCount, pktCount++, resetCount,
+			msgQueue.v.size(), (int)cmdTemp, inletTemp);
 	}
 	if (j.secTick(120)) { 
-		if (cmdTemp < 55) {
+		if (cmdTemp < maxBoilerTemp) {
 			cmdTemp++;
 			msgQueue.add(addCrc(Sfmt("fb1b0400%02x0a280100", cmdTemp), 0xfb00), 220); 
-			LOG(1, "Increase temp to %d", cmdTemp);
+			LOG(1, "Increase temp to %d/%d, inlet temp %d", (int)cmdTemp, (int)maxBoilerTemp, inletTemp);
 		}
 	}
 	delay(10);
