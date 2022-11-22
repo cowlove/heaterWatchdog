@@ -118,8 +118,8 @@ uint32_t lastRec;
 
 int state = 0, errCount = 0, resetCount = 0, pktCount = 0;
 
-CLI_VARIABLE_INT(maxBoilerTemp, 35);
-CLI_VARIABLE_INT(minBoilerTemp, 38);
+CLI_VARIABLE_INT(maxBoilerTemp, 38);
+CLI_VARIABLE_INT(minBoilerTemp, 35);
 CLI_VARIABLE_INT(cmdTemp, 35);
 int inletTemp = 0;
 

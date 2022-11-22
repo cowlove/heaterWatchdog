@@ -5,3 +5,4 @@ testresult.out
 heaterWatchdog_csim
 crc16heater_test
 jimlib.h
+csim_*

@@ -1,6 +1,6 @@
 #!/bin/bash 
 touch testexpected.out
-PROG=./`basename $(pwd)`_csim
+PROG=./csim_`basename $(pwd)`
 OUT=testresult.out
 EXPECTED=testexpected.out
 
